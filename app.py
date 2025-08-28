@@ -60,6 +60,20 @@ GDRIVE_FOLDER_ID = _get_secret("GDRIVE_FOLDER_ID", "")
 init_db(DB_PATH)
 
 st.title("Neuro-Nutrition Consultant (Prototype)")
+st.markdown("### 0) Knowledge bank (local, optional)")
+kb_files = st.file_uploader("Add reference cases (PDF/DOCX/TXT)", type=["pdf","docx","txt"], accept_multiple_files=True, key="kb")
+col_kb1, col_kb2, col_kb3 = st.columns(3)
+with col_kb1:
+    if kb_files and st.button("Add to knowledge bank"):
+        d, c = kb_add_uploads(DB_PATH, kb_files)
+        st.success(f"Added {d} document(s), created {c} chunk(s).")
+with col_kb2:
+    if st.button("Build index (embed new chunks)"):
+        done, remaining = kb_build_index(DB_PATH)
+        st.info(f"Embedded {done} chunk(s). Remaining: {remaining}.")
+with col_kb3:
+    docs = kb_list(DB_PATH)
+    st.caption(f"Knowledge bank docs: {len(docs)}")
 st.caption("British English • Neuro-affirmative • Designed for Indian context • Minimal clicks, clear output")
 
 # --- Sidebar: Session / Child Management ---
