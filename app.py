@@ -4,9 +4,11 @@ import base64
 import json
 import datetime as dt
 from typing import List, Dict, Any
+from knowledge_bank import kb_add_uploads, kb_build_index, kb_retrieve, kb_list
 
 import streamlit as st
 from dotenv import load_dotenv
+from knowledge_bank import kb_add_uploads, kb_build_index, kb_retrieve, kb_list
 
 from data_models import (
     init_db, upsert_child, list_children, get_child, save_artifact,
