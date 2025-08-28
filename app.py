@@ -57,7 +57,11 @@ st.caption("British English • Neuro‑affirmative • Designed for Indian cont
 # --- Sidebar: Session / Child Management ---
 st.sidebar.header("Consultation Sessions")
 child_name = st.sidebar.text_input("Child name")
-child_dob = st.sidebar.date_input("Date of birth", value=None, format="DD/MM/YYYY")
+# Some Streamlit versions don’t support the `format=` param; fall back gracefully.
+try:
+    child_dob = st.sidebar.date_input("Date of birth", value=None, format="DD/MM/YYYY")
+except TypeError:
+    child_dob = st.sidebar.date_input("Date of birth", value=None)
 consultant = st.sidebar.text_input("Consultant name", value="")
 
 col_a, col_b = st.sidebar.columns(2)
