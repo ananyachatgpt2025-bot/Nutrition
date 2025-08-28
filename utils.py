@@ -1,10 +1,10 @@
 
 import hashlib
-from typing import BinaryIO
-
-from docx import Document as DocxDocument
+import tempfile, os
+import docx2txt
 from PyPDF2 import PdfReader
 from fpdf import FPDF
+
 
 
 def simple_hash(s: str) -> str:
@@ -14,8 +14,18 @@ def simple_hash(s: str) -> str:
 def parse_document_text(uploaded_file) -> str:
     name = uploaded_file.name.lower()
     if name.endswith(".docx"):
-        doc = DocxDocument(uploaded_file)
-        return "\n".join([p.text for p in doc.paragraphs])
+        # docx2txt needs a file path; write the upload to a temp file
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            tmp.write(uploaded_file.getbuffer())
+            tmp.flush()
+            tmp_path = tmp.name
+        try:
+            return docx2txt.process(tmp_path) or ""
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
     elif name.endswith(".pdf"):
         reader = PdfReader(uploaded_file)
         parts = []
@@ -24,6 +34,7 @@ def parse_document_text(uploaded_file) -> str:
         return "\n".join(parts)
     else:
         return uploaded_file.read().decode("utf-8", errors="ignore")
+
 
 
 class PDF(FPDF):
