@@ -135,10 +135,9 @@ if not existing_qs and st.button("Generate questions"):
         psych_texts = [a["content"] for a in artifacts if a["kind"] == "psychometric"]
         context = "\n\n".join(psych_texts[-3:])[:15000]
 
-        gold_context = ""
-        if GDRIVE_FOLDER_ID:
-            ensure_gold_cases_index()
-            gold_context = retrieve_similar_gold_cases(query=context, top_k=3)
+        kb_context = kb_retrieve(DB_PATH, query=context, top_k=3)
+prompt = build_question_prompt(context=context, gold_context=kb_context)
+
 
         prompt = build_question_prompt(context=context, gold_context=gold_context)
         try:
