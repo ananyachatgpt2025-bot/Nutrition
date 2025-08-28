@@ -59,7 +59,7 @@ st.sidebar.header("Consultation Sessions")
 child_name = st.sidebar.text_input("Child name")
 # Some Streamlit versions don’t support the `format=` param; fall back gracefully.
 try:
-    child_dob = st.sidebar.date_input("Date of birth", value=None, format="DD/MM/YYYY")
+    child_dob = st.sidebar.date_input("Date of birth")
 except TypeError:
     child_dob = st.sidebar.date_input("Date of birth", value=None)
 consultant = st.sidebar.text_input("Consultant name", value="")
@@ -71,7 +71,7 @@ with col_a:
             st.sidebar.error("Please enter the child's name.")
         else:
             child_id = simple_hash(f"{child_name}|{child_dob}|{consultant}|{dt.datetime.utcnow().isoformat()}")
-            upsert_child(DB_PATH, child_id, child_name, child_dob.isoformat() if child_dob else None, consultant)
+            upsert_child(DB_PATH, child_id, child_name, child_dob.isoformat(), consultant)
             st.session_state["child_id"] = child_id
             st.sidebar.success(f"Session ready for {child_name}.")
 with col_b:
