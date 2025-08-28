@@ -1,0 +1,13 @@
+
+streamlit==1.37.0
+python-dotenv==1.0.1
+openai==1.42.0
+PyPDF2==3.0.1
+python-docx==1.1.2
+fpdf2==2.7.9
+PyYAML==6.0.2
+pydrive2==1.20.0
+google-api-python-client==2.139.0
+faiss-cpu==1.8.0.post1
+numpy==1.26.4
+tqdm==4.66.5
