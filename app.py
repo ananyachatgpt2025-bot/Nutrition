@@ -205,20 +205,27 @@ if recs:
 
 # --- Section 5: Upload Blood Report(s) ---
 st.markdown("### 5) Upload laboratory report(s)")
-lab_files = st.file_uploader("Upload PDF (multiple allowed)", type=["pdf"], accept_multiple_files=True, key="lab")
+lab_files = st.file_uploader(
+    "Upload PDF (multiple allowed)", type=["pdf"], accept_multiple_files=True, key="lab"
+)
 if lab_files:
     for f in lab_files:
         text = parse_document_text(f)
-        save_artifact(DB_PATH, st.session_state["child_id"], kind="lab_report", filename=f.name, content=text)
+        save_artifact(DB_PATH, st.session_state["child_id"],
+                      kind="lab_report", filename=f.name, content=text)
     st.success("Laboratory reports captured.")
 
-# if st.button("Generate plan PDF"):
+# --- Section 6: Generate Diet & Supplement Plan ---
+st.markdown("### 6) Diet & supplementation plan (for clinician review)")
+plan = get_plan(DB_PATH, st.session_state["child_id"]) or {}
+
+if st.button("Generate plan PDF"):
     artifacts = save_artifact(DB_PATH, st.session_state["child_id"], kind=None, fetch_only=True)
-    psych_texts = [a["content"] for a in artifacts if a["kind"]=="psychometric"]
-    lab_texts = [a["content"] for a in artifacts if a["kind"]=="lab_report"]
+    psych_texts = [a["content"] for a in artifacts if a["kind"] == "psychometric"]
+    lab_texts   = [a["content"] for a in artifacts if a["kind"] == "lab_report"]
 
     context = "\n\n".join(psych_texts[-3:])[:8000]
-    labs = "\n\n".join(lab_texts[-4:])[:10000]
+    labs    = "\n\n".join(lab_texts[-4:])[:10000]
 
     tests_md = (recs or {}).get("tests_markdown", "")
     prompt = build_plan_prompt(context=context, answers=answers, labs=labs, tests_markdown=tests_md)
@@ -230,29 +237,28 @@ if lab_files:
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role":"system","content":"You write concise, British English, neuro-affirmative care plans for Indian families."},
-                    {"role":"user","content":prompt}
+                    {"role": "system",
+                     "content": "You write concise, British English, neuro-affirmative care plans for Indian families."},
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
             )
             plan_md = resp.choices[0].message.content
 
-            # Try PDF first; if font/encoding fails, fall back to Markdown download
+            # PDF export (Unicode-safe) with Markdown fallback
             try:
                 pdf_bytes = pdf_from_markdown(plan_md, title=f"Nutrition Plan — {child.get('child_name','Child')}")
-                st.download_button("Download Plan PDF", data=pdf_bytes, file_name="nutrition_plan.pdf", mime="application/pdf")
+                st.download_button("Download Plan PDF", data=pdf_bytes,
+                                   file_name="nutrition_plan.pdf", mime="application/pdf")
             except Exception:
                 st.warning("PDF export hit a font/encoding issue. Download the Markdown version instead.")
-                st.download_button("Download Plan (Markdown)", data=plan_md.encode("utf-8"), file_name="nutrition_plan.md", mime="text/markdown")
+                st.download_button("Download Plan (Markdown)", data=plan_md.encode("utf-8"),
+                                   file_name="nutrition_plan.md", mime="text/markdown")
 
             save_plan(DB_PATH, st.session_state["child_id"], {"markdown": plan_md})
             st.markdown("Preview:")
             st.markdown(plan_md)
 
         except Exception as e:
-            # This now truly reports LLM/auth errors only
             st.error("Could not generate the plan (LLM/auth). Check OPENAI_API_KEY in Secrets.")
             st.caption(f"Technical note: {type(e).__name__}")
-            
-st.divider()
-st.caption("This prototype supports clinical decision-support for professionals. It does not replace medical advice.")
