@@ -131,15 +131,15 @@ if not existing_qs and st.button("Generate questions"):
     if not client:
         st.error("OpenAI key missing. Add OPENAI_API_KEY in Streamlit Secrets.")
     else:
+        # Pull context: psychometric text
         artifacts = save_artifact(DB_PATH, st.session_state["child_id"], kind=None, fetch_only=True)
         psych_texts = [a["content"] for a in artifacts if a["kind"] == "psychometric"]
         context = "\n\n".join(psych_texts[-3:])[:15000]
 
+        # Knowledge Bank retrieval (local)
         kb_context = kb_retrieve(DB_PATH, query=context, top_k=3)
-prompt = build_question_prompt(context=context, gold_context=kb_context)
 
-
-        prompt = build_question_prompt(context=context, gold_context=gold_context)
+        prompt = build_question_prompt(context=context, gold_context=kb_context)
         try:
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -154,13 +154,14 @@ prompt = build_question_prompt(context=context, gold_context=kb_context)
             save_questions(DB_PATH, st.session_state["child_id"], questions)
             existing_qs = questions
         except Exception as e:
-            st.error("OpenAI authentication failed. Check your OPENAI_API_KEY in Secrets (use a fresh key, keep quotes).")
+            st.error("OpenAI authentication failed. Check your OPENAI_API_KEY in Secrets (use a fresh key).")
             st.caption(f"Technical note: {type(e).__name__}")
 
 if existing_qs:
     st.write("Please share these with parents and paste answers below during the consult:")
     for i, q in enumerate(existing_qs, 1):
         st.markdown(f"**{i}. {q}**")
+
 
 # --- Section 3: Record Parent Answers ---
 st.markdown("### 3) Paste parent answers (keep concise)")
