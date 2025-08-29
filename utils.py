@@ -44,18 +44,93 @@ class PDF(FPDF):
         self.ln(2)
 
 
+def class PDF(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 12)
+        self.cell(0, 10, self.title, ln=1, align="C")
+        self.ln(2)
+
+def _ascii_sanitize(s: str) -> str:
+    # Replace common Unicode chars that Helvetica can't render
+    repl = {
+        "–": "-", "—": "-", "-": "-", "•": "*", "·": "*",
+        "“": '"', "”": '"', "‘": "'", "’": "'",
+        "…": "...", "₹": "Rs ", "×": "x", "°": " deg",
+        "≥": ">=", "≤": "<=", "™": " (TM)"
+    }
+    return "".join(repl.get(ch, ch) for ch in s)
+
 def pdf_from_markdown(md: str, title: str="Document") -> bytes:
-    # extremely simple: render as text paragraphs (for prototype)
+    # Convert to ASCII-ish so core Helvetica won't crash
+    text = _ascii_sanitize(md)
     pdf = PDF()
-    pdf.set_title(title)
+    pdf.set_title(_ascii_sanitize(title))
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Helvetica", size=11)
-    for line in md.split("\n"):
+    for line in text.split("\n"):
         if line.strip().startswith("#"):
             pdf.set_font("Helvetica", "B", 12)
             pdf.multi_cell(0, 6, line.lstrip("# "))
             pdf.set_font("Helvetica", size=11)
         else:
             pdf.multi_cell(0, 6, line)
-    return bytes(pdf.output(dest='S').encode('latin-1'))
+
+    out = pdf.output(dest="S")
+    # fpdf2 may return str or bytes depending on version
+    if isinstance(out, str):
+        out = out.encode("latin-1", "ignore")
+    return bytes(out)
+class PDF(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 12)
+        self.cell(0, 10, self.title, ln=1, align="C")
+        self.ln(2)
+
+def _ascii_sanitize(s: str) -> str:
+    # Replace common Unicode chars that Helvetica can't render
+    repl = {
+        "–": "-", "—": "-", "-": "-", "•": "*", "·": "*",
+        "“": '"', "”": '"', "‘": "'", "’": "'",
+        "…": "...", "₹": "Rs ", "×": "x", "°": " deg",
+        "≥": ">=", "≤": "<=", "™": " (TM)"
+    }
+    return "".join(repl.get(ch, ch) for ch in s)
+
+def class PDF(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 12)
+        self.cell(0, 10, self.title, ln=1, align="C")
+        self.ln(2)
+
+def _ascii_sanitize(s: str) -> str:
+    # Replace common Unicode chars that Helvetica can't render
+    repl = {
+        "–": "-", "—": "-", "-": "-", "•": "*", "·": "*",
+        "“": '"', "”": '"', "‘": "'", "’": "'",
+        "…": "...", "₹": "Rs ", "×": "x", "°": " deg",
+        "≥": ">=", "≤": "<=", "™": " (TM)"
+    }
+    return "".join(repl.get(ch, ch) for ch in s)
+
+def pdf_from_markdown(md: str, title: str="Document") -> bytes:
+    # Convert to ASCII-ish so core Helvetica won't crash
+    text = _ascii_sanitize(md)
+    pdf = PDF()
+    pdf.set_title(_ascii_sanitize(title))
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Helvetica", size=11)
+    for line in text.split("\n"):
+        if line.strip().startswith("#"):
+            pdf.set_font("Helvetica", "B", 12)
+            pdf.multi_cell(0, 6, line.lstrip("# "))
+            pdf.set_font("Helvetica", size=11)
+        else:
+            pdf.multi_cell(0, 6, line)
+
+    out = pdf.output(dest="S")
+    # fpdf2 may return str or bytes depending on version
+    if isinstance(out, str):
+        out = out.encode("latin-1", "ignore")
+    return bytes(out)
