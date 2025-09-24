@@ -1,54 +1,74 @@
-import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
-import { buildTestPrompt } from '@/lib/prompts'
-import { recommendTestsViaRules } from '@/lib/rules-engine'
+import { NextResponse } from "next/server"
+import OpenAI from "openai"
+import { supabase } from "@/lib/supabase"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
-export async function POST(request: NextRequest) {
+export async function GET(req: Request) {
   try {
-    const { context, answers } = await request.json()
+    const { searchParams } = new URL(req.url)
+    const sessionId = searchParams.get("sessionId")
 
-    if (!context) {
-      return NextResponse.json(
-        { error: 'Context is required' },
-        { status: 400 }
-      )
+    if (!sessionId) {
+      return NextResponse.json({ error: "Missing sessionId" }, { status: 400 })
     }
 
-    // Get rule-based recommendations
-    const ruleBasedTests = recommendTestsViaRules(context, answers || '')
-    const ruleTestsYaml = `approved: ${JSON.stringify(ruleBasedTests.approved)}\nrule_based: ${JSON.stringify(ruleBasedTests.ruleBased)}`
+    // Fetch knowledge bank file from Supabase storage
+    const { data: fileData, error: fileError } = await supabase.storage
+      .from("knowledge-bank")
+      .download("knowledge_bank.txt")
 
-    const prompt = buildTestPrompt(context, answers || '', ruleTestsYaml)
+    let knowledgeText = ""
+    if (!fileError && fileData) {
+      knowledgeText = await fileData.text()
+    }
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a careful paediatric nutrition consultant. Only recommend from the approved list.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.1,
+    // Fetch child/session details
+    const { data: child, error: childError } = await supabase
+      .from("children")
+      .select("*")
+      .eq("child_id", sessionId)
+      .single()
+
+    if (childError) {
+      console.error("Child fetch error:", childError.message)
+    }
+
+    // Build the prompt
+    const prompt = `
+You are a professional paediatric nutrition consultant. 
+Use the following knowledge base of gold-standard cases and past consultations to recommend evidence-based laboratory tests:
+
+Knowledge Base:
+${knowledgeText}
+
+Child details:
+Name: ${child?.child_name || "Unknown"}
+DOB: ${child?.dob || "Unknown"}
+Consultant: ${child?.consultant || "Unknown"}
+
+Please recommend:
+- Blood tests relevant for paediatric nutrition care
+- Any additional screenings needed for developmental concerns
+- Clear reasoning for each test
+    `
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
     })
 
-    const testsMarkdown = response.choices[0].message.content || ''
+    const tests =
+      completion.choices[0].message?.content?.trim() ||
+      "No test recommendations generated."
 
-    return NextResponse.json({ 
-      testsMarkdown,
-      ruleBasedTests: ruleBasedTests.ruleBased
-    })
-  } catch (error) {
-    console.error('Error recommending tests:', error)
+    return NextResponse.json({ tests })
+  } catch (err: any) {
+    console.error("Error recommending tests:", err)
     return NextResponse.json(
-      { error: 'Failed to recommend tests' },
+      { error: "Failed to recommend tests" },
       { status: 500 }
     )
   }
