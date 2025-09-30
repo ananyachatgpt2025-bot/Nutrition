@@ -28,7 +28,6 @@ export default function ConsultationPage() {
         .select("*")
         .eq("child_id", params.sessionId)
         .single()
-
       if (!error) setChildData(data)
     }
     fetchChild()
@@ -41,7 +40,7 @@ export default function ConsultationPage() {
         .from("answers")
         .select("*")
         .eq("session_id", params.sessionId)
-
+        .order("uploaded_at", { ascending: false })
       if (!error && data) setUploadedAnswers(data)
     }
     fetchAnswers()
@@ -55,7 +54,6 @@ export default function ConsultationPage() {
       const res = await fetch(`/api/generate-questions?sessionId=${params.sessionId}`)
       if (!res.ok) throw new Error("Failed to generate questions")
       const data = await res.json()
-      // No artificial 5–7 cap anymore
       setGeneratedQuestions(data.questions || [])
     } catch (err) {
       console.error(err)
@@ -95,7 +93,7 @@ export default function ConsultationPage() {
 
       if (insertError) throw insertError
 
-      setUploadedAnswers([...uploadedAnswers, { file_name: file.name, file_url: publicUrl }])
+      setUploadedAnswers((prev) => [...prev, { file_name: file.name, file_url: publicUrl }])
     } catch (err: any) {
       setAnswersError(err.message)
     } finally {
@@ -127,11 +125,12 @@ export default function ConsultationPage() {
           session_id: params.sessionId,
           file_name: "consultation-notes.txt",
           file_url: publicUrl,
+          notes: answerText,
         },
       ])
 
       setAnswerText("")
-      setUploadedAnswers([...uploadedAnswers, { file_name: "consultation-notes.txt", file_url: publicUrl }])
+      setUploadedAnswers((prev) => [...prev, { file_name: "consultation-notes.txt", file_url: publicUrl }])
     } catch (err: any) {
       setAnswersError(err.message)
     } finally {
