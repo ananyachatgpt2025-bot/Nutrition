@@ -3,8 +3,6 @@ export const dynamic = "force-dynamic"
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
 import { supabase } from "@/lib/supabase"
-import * as pdfParse from "pdf-parse"
-import mammoth from "mammoth"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -19,82 +17,45 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Missing sessionId" }, { status: 400 })
     }
 
-    // Fetch the latest uploaded answer file or notes
-    const { data: answers, error } = await supabase
+    // Fetch answers from Supabase
+    const { data: answers, error: answersError } = await supabase
       .from("answers")
       .select("*")
       .eq("session_id", sessionId)
       .order("uploaded_at", { ascending: false })
-      .limit(1)
 
-    if (error || !answers || answers.length === 0) {
-      return NextResponse.json(
-        { error: "No answers found for this session" },
-        { status: 404 }
-      )
-    }
+    if (answersError) throw answersError
 
-    const answer = answers[0]
-    let answerText = ""
-
-    // If user pasted notes directly
-    if (answer.notes) {
-      answerText = answer.notes
-    }
-
-    // If a file was uploaded, fetch and extract text
-    if (!answerText && answer.file_url) {
-      const { data: fileData, error: fileError } = await supabase.storage
-        .from("answers")
-        .download(answer.file_name)
-
-      if (!fileError && fileData) {
-        const buffer = await fileData.arrayBuffer()
-        const uint8Array = new Uint8Array(buffer)
-
-        if (answer.file_name.endsWith(".pdf")) {
-          const pdf = await pdfParse(Buffer.from(uint8Array))
-          answerText = pdf.text
-        } else if (answer.file_name.endsWith(".docx")) {
-          const result = await mammoth.extractRawText({ buffer: Buffer.from(uint8Array) })
-          answerText = result.value
-        } else if (answer.file_name.endsWith(".txt")) {
-          answerText = Buffer.from(uint8Array).toString("utf-8")
+    let combinedNotes = ""
+    if (answers?.length) {
+      for (const ans of answers) {
+        if (ans.notes) {
+          combinedNotes += `\n\nText Notes:\n${ans.notes}`
+        } else if (ans.file_url) {
+          combinedNotes += `\n\nUploaded file: ${ans.file_url}`
         }
       }
     }
 
-    if (!answerText) {
-      return NextResponse.json(
-        { error: "Could not extract text from answers" },
-        { status: 500 }
-      )
-    }
-
-    // Use OpenAI to recommend tests
+    // Build prompt
     const prompt = `
 You are a paediatric nutrition consultant.
-You are reviewing consultation answers from parents about their child's health, diet, and medical history.
+Based on the consultation answers and meeting notes below, identify **all clinically relevant blood tests** 
+that should be recommended for nutritional and developmental assessment.
 
-Extract the clinically relevant details and recommend appropriate **blood tests** that should be ordered, 
-based on gold-standard paediatric nutrition practice.
+Answers/Notes:
+${combinedNotes}
 
-Be specific and only suggest tests that are necessary. 
-Provide reasoning for each test briefly.
-
-Here are the consultation notes/answers:
-${answerText}
-    `
+Return the recommendations as a clear bullet-point list of tests with short explanations.
+`
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     })
 
-    const tests =
-      completion.choices[0].message?.content?.trim() || "No tests generated."
-
-    return NextResponse.json({ tests })
+    const text = completion.choices[0].message?.content?.trim() || ""
+    return NextResponse.json({ recommendations: text })
   } catch (err: any) {
     console.error("Error recommending tests:", err)
     return NextResponse.json(
