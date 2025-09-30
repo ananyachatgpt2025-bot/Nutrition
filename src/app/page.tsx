@@ -1,295 +1,99 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useParams } from "next/navigation"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
-import FileUpload from "@/components/file-upload"
 
-export default function ConsultationPage() {
-  const params = useParams<{ sessionId: string }>()
-  const [activeStep, setActiveStep] = useState<string>("Session")
-  const [childData, setChildData] = useState<any>(null)
+export default function HomePage() {
+  const router = useRouter()
+  const [childName, setChildName] = useState("")
+  const [dob, setDob] = useState("")
+  const [consultant, setConsultant] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Questions
-  const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([])
-  const [loadingQuestions, setLoadingQuestions] = useState(false)
-
-  // Answers
-  const [answerText, setAnswerText] = useState("")
-  const [answersUploading, setAnswersUploading] = useState(false)
-  const [answersError, setAnswersError] = useState<string | null>(null)
-  const [uploadedAnswers, setUploadedAnswers] = useState<any[]>([])
-
-  // Tests
-  const [testRecs, setTestRecs] = useState<string>("")
-  const [loadingTests, setLoadingTests] = useState(false)
-
-  // Fetch child/session data
-  useEffect(() => {
-    async function fetchChild() {
-      const { data, error } = await supabase
-        .from("children")
-        .select("*")
-        .eq("child_id", params.sessionId)
-        .single()
-      if (!error) setChildData(data)
-    }
-    fetchChild()
-  }, [params.sessionId])
-
-  // Fetch uploaded answers
-  useEffect(() => {
-    async function fetchAnswers() {
-      const { data, error } = await supabase
-        .from("answers")
-        .select("*")
-        .eq("session_id", params.sessionId)
-        .order("uploaded_at", { ascending: false })
-      if (!error && data) setUploadedAnswers(data)
-    }
-    fetchAnswers()
-  }, [params.sessionId])
-
-  const steps = ["Session", "Reports", "Questions", "Answers", "Tests", "Labs", "Plan"]
-
-  async function handleGenerateQuestions() {
+  async function handleCreateSession() {
     try {
-      setLoadingQuestions(true)
-      const res = await fetch(`/api/generate-questions?sessionId=${params.sessionId}`)
-      if (!res.ok) throw new Error("Failed to generate questions")
-      const data = await res.json()
-      setGeneratedQuestions(data.questions || [])
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoadingQuestions(false)
-    }
-  }
+      setLoading(true)
+      setError(null)
 
-  // File upload for answers
-  async function handleAnswerFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    try {
-      setAnswersUploading(true)
-      setAnswersError(null)
-
-      if (!event.target.files || event.target.files.length === 0) {
-        throw new Error("No file selected")
+      if (!childName || !dob || !consultant) {
+        throw new Error("Please fill in all fields")
       }
 
-      const file = event.target.files[0]
-      const filePath = `${params.sessionId}/answers/${Date.now()}-${file.name}`
+      // Generate session ID
+      const sessionId = crypto.randomUUID()
 
-      const { error: uploadError } = await supabase.storage
-        .from("answers")
-        .upload(filePath, file)
-
-      if (uploadError) throw uploadError
-
-      const publicUrl = supabase.storage.from("answers").getPublicUrl(filePath).data.publicUrl
-
-      const { error: insertError } = await supabase.from("answers").insert([
+      // Insert into Supabase
+      const { error: insertError } = await supabase.from("children").insert([
         {
-          session_id: params.sessionId,
-          file_name: file.name,
-          file_url: publicUrl,
+          child_id: sessionId,
+          child_name: childName,
+          dob: dob,
+          consultant: consultant,
         },
       ])
 
       if (insertError) throw insertError
 
-      setUploadedAnswers((prev) => [...prev, { file_name: file.name, file_url: publicUrl }])
+      // Navigate to the consultation page
+      router.push(`/consultation/${sessionId}`)
     } catch (err: any) {
-      setAnswersError(err.message)
+      setError(err.message)
     } finally {
-      setAnswersUploading(false)
-    }
-  }
-
-  // Text notes upload for answers
-  async function handleAnswerTextSubmit() {
-    try {
-      setAnswersUploading(true)
-      setAnswersError(null)
-
-      if (!answerText.trim()) throw new Error("No text entered")
-
-      const filePath = `${params.sessionId}/answers/${Date.now()}-notes.txt`
-      const blob = new Blob([answerText], { type: "text/plain" })
-
-      const { error: uploadError } = await supabase.storage
-        .from("answers")
-        .upload(filePath, blob)
-
-      if (uploadError) throw uploadError
-
-      const publicUrl = supabase.storage.from("answers").getPublicUrl(filePath).data.publicUrl
-
-      await supabase.from("answers").insert([
-        {
-          session_id: params.sessionId,
-          file_name: "consultation-notes.txt",
-          file_url: publicUrl,
-          notes: answerText,
-        },
-      ])
-
-      setAnswerText("")
-      setUploadedAnswers((prev) => [...prev, { file_name: "consultation-notes.txt", file_url: publicUrl }])
-    } catch (err: any) {
-      setAnswersError(err.message)
-    } finally {
-      setAnswersUploading(false)
-    }
-  }
-
-  // Fetch test recommendations
-  async function handleGenerateTests() {
-    try {
-      setLoadingTests(true)
-      const res = await fetch(`/api/recommend-tests?sessionId=${params.sessionId}`)
-      if (!res.ok) throw new Error("Failed to generate tests")
-      const data = await res.json()
-      setTestRecs(data.recommendations || "")
-    } catch (err) {
-      console.error(err)
-      setTestRecs("Error fetching recommendations.")
-    } finally {
-      setLoadingTests(false)
+      setLoading(false)
     }
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-8">
-      {/* Step navigation */}
-      <div className="flex gap-2 flex-wrap">
-        {steps.map((step) => (
-          <button
-            key={step}
-            className={`px-4 py-2 rounded ${
-              activeStep === step ? "bg-blue-600 text-white" : "bg-gray-200"
-            }`}
-            onClick={() => setActiveStep(step)}
-          >
-            {step}
-          </button>
-        ))}
+    <div className="max-w-3xl mx-auto p-8 space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold mb-2">
+          Neuro-Nutrition Consultant
+        </h1>
+        <p className="text-gray-600">
+          Professional paediatric nutrition consultation platform.
+        </p>
       </div>
 
-      {/* Step content */}
       <div className="p-6 border rounded bg-white shadow">
-        {activeStep === "Session" && (
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Session Details</h2>
-            {childData ? (
-              <ul className="space-y-2">
-                <li><strong>Name:</strong> {childData.child_name}</li>
-                <li><strong>DOB:</strong> {new Date(childData.dob).toLocaleDateString()}</li>
-                <li><strong>Consultant:</strong> {childData.consultant}</li>
-              </ul>
-            ) : (
-              <p className="text-gray-500">Loading session info...</p>
-            )}
-          </div>
-        )}
+        <h2 className="text-lg font-semibold mb-4">Start New Consultation</h2>
 
-        {activeStep === "Reports" && (
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Upload Reports</h2>
-            <FileUpload sessionId={params.sessionId} />
-          </div>
-        )}
+        <div className="space-y-4">
+          <input
+            type="text"
+            placeholder="Child's Name"
+            value={childName}
+            onChange={(e) => setChildName(e.target.value)}
+            className="w-full border rounded p-2"
+          />
 
-        {activeStep === "Questions" && (
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Generated Questions</h2>
-            <button
-              onClick={handleGenerateQuestions}
-              disabled={loadingQuestions}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loadingQuestions ? "Generating..." : "Generate Questions"}
-            </button>
+          <input
+            type="date"
+            placeholder="Date of Birth"
+            value={dob}
+            onChange={(e) => setDob(e.target.value)}
+            className="w-full border rounded p-2"
+          />
 
-            <div className="mt-4 space-y-2">
-              {generatedQuestions?.length > 0 ? (
-                <ul className="list-disc pl-6 space-y-2">
-                  {generatedQuestions.map((q: string, idx: number) => (
-                    <li key={idx}>{q}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-gray-500">No questions yet. Click the button above.</p>
-              )}
-            </div>
-          </div>
-        )}
+          <input
+            type="text"
+            placeholder="Consultant Name"
+            value={consultant}
+            onChange={(e) => setConsultant(e.target.value)}
+            className="w-full border rounded p-2"
+          />
 
-        {activeStep === "Answers" && (
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Consultation Answers</h2>
-            <div className="space-y-4">
-              <input type="file" onChange={handleAnswerFileUpload} disabled={answersUploading} />
+          <button
+            onClick={handleCreateSession}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? "Creating Session..." : "Create Session"}
+          </button>
 
-              <textarea
-                className="w-full border p-2 rounded"
-                rows={5}
-                placeholder="Paste consultation answers or meeting notes here..."
-                value={answerText}
-                onChange={(e) => setAnswerText(e.target.value)}
-              />
-
-              <button
-                onClick={handleAnswerTextSubmit}
-                disabled={answersUploading}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-              >
-                {answersUploading ? "Saving..." : "Save Notes"}
-              </button>
-
-              {answersError && <p className="text-red-500">{answersError}</p>}
-
-              <h3 className="font-semibold mt-4">Uploaded Answers</h3>
-              <ul className="list-disc pl-6 space-y-1">
-                {uploadedAnswers.map((f, i) => (
-                  <li key={i}>
-                    <a href={f.file_url} target="_blank" rel="noreferrer">{f.file_name}</a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-
-        {activeStep === "Tests" && (
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Recommended Tests</h2>
-            <button
-              onClick={handleGenerateTests}
-              disabled={loadingTests}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loadingTests ? "Loading..." : "Generate Recommendations"}
-            </button>
-
-            <div className="mt-4 whitespace-pre-wrap text-gray-700">
-              {testRecs || "No recommendations yet. Click the button above."}
-            </div>
-          </div>
-        )}
-
-        {activeStep === "Labs" && (
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Labs</h2>
-            <p className="text-gray-500">Lab integrations will be implemented here.</p>
-          </div>
-        )}
-
-        {activeStep === "Plan" && (
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Plan</h2>
-            <p className="text-gray-500">Nutrition plan generation will be shown here.</p>
-          </div>
-        )}
+          {error && <p className="text-red-500">{error}</p>}
+        </div>
       </div>
     </div>
   )
