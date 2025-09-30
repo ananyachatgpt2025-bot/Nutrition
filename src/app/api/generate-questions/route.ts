@@ -18,41 +18,36 @@ export async function GET(req: Request) {
     }
 
     // Fetch knowledge bank file from Supabase storage
-    const { data: fileData, error: fileError } = await supabase.storage
+    let knowledgeText = ""
+    const { data: fileData } = await supabase.storage
       .from("knowledge-bank")
       .download("knowledge_bank.txt")
 
-    let knowledgeText = ""
-    if (!fileError && fileData) {
+    if (fileData) {
       knowledgeText = await fileData.text()
     }
 
     // Fetch child/session details
-    const { data: child, error: childError } = await supabase
+    const { data: child } = await supabase
       .from("children")
       .select("*")
       .eq("child_id", sessionId)
       .single()
 
-    if (childError) {
-      console.error("Child fetch error:", childError.message)
-    }
-
-    // Build the prompt
+    // Build the prompt (clean)
     const prompt = `
-You are a professional nutrition consultant. Use the following knowledge base of gold-standard cases and past consultations to guide your question generation:
+You are a professional nutrition consultant. Use the following knowledge base of gold-standard cases and past consultations to guide your question generation.
 
 Knowledge Base:
-${knowledgeText}
+${knowledgeText || "No knowledge base available."}
 
 Child details:
 Name: ${child?.child_name || "Unknown"}
 DOB: ${child?.dob || "Unknown"}
 Consultant: ${child?.consultant || "Unknown"}
 
-const prompt = `Generate as many detailed consultation questions as are clinically necessary for ${childName}, 
-based on their age, dietary needs, and context. Do not limit the number of questions.`
-    `
+Generate as many detailed consultation questions as are clinically necessary for this child, based on their age, dietary needs, and context. Do not limit the number of questions. Avoid filler text, only return the questions as a numbered or bulleted list.
+`
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -61,7 +56,10 @@ based on their age, dietary needs, and context. Do not limit the number of quest
 
     const questionsText =
       completion.choices[0].message?.content?.trim() || ""
-    const questions = questionsText.split("\n").filter((q) => q.trim() !== "")
+    const questions = questionsText
+      .split("\n")
+      .map((q) => q.replace(/^\d+[\).\s-]?\s*/, "").trim()) // clean numbers/bullets
+      .filter((q) => q.length > 0)
 
     return NextResponse.json({ questions })
   } catch (err: any) {
