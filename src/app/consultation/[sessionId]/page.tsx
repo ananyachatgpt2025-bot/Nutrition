@@ -12,6 +12,11 @@ export default function ConsultationPage() {
   const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([])
   const [loadingQuestions, setLoadingQuestions] = useState(false)
 
+  const [answerText, setAnswerText] = useState("")
+  const [answersUploading, setAnswersUploading] = useState(false)
+  const [answersError, setAnswersError] = useState<string | null>(null)
+  const [uploadedAnswers, setUploadedAnswers] = useState<any[]>([])
+
   // Fetch child/session data
   useEffect(() => {
     async function fetchChild() {
@@ -26,6 +31,19 @@ export default function ConsultationPage() {
       }
     }
     fetchChild()
+  }, [params.sessionId])
+
+  // Fetch previously uploaded answers
+  useEffect(() => {
+    async function fetchAnswers() {
+      const { data } = await supabase
+        .from("answers")
+        .select("*")
+        .eq("session_id", params.sessionId)
+
+      if (data) setUploadedAnswers(data)
+    }
+    fetchAnswers()
   }, [params.sessionId])
 
   const steps = [
@@ -49,6 +67,81 @@ export default function ConsultationPage() {
       console.error(err)
     } finally {
       setLoadingQuestions(false)
+    }
+  }
+
+  async function handleAnswerFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    try {
+      setAnswersUploading(true)
+      setAnswersError(null)
+
+      if (!event.target.files || event.target.files.length === 0) {
+        throw new Error("No file selected")
+      }
+
+      const file = event.target.files[0]
+      const filePath = `${params.sessionId}/answers/${Date.now()}-${file.name}`
+
+      // Upload file to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from("reports") // still using reports bucket for storage
+        .upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      const publicUrl = supabase.storage.from("reports").getPublicUrl(filePath).data.publicUrl
+
+      // Insert record into answers table
+      const { error: insertError } = await supabase.from("answers").insert([
+        {
+          session_id: params.sessionId,
+          file_name: file.name,
+          file_url: publicUrl,
+        },
+      ])
+
+      if (insertError) throw insertError
+
+      setUploadedAnswers([...uploadedAnswers, { file_name: file.name, file_url: publicUrl }])
+    } catch (err: any) {
+      setAnswersError(err.message)
+    } finally {
+      setAnswersUploading(false)
+    }
+  }
+
+  async function handleAnswerTextSubmit() {
+    try {
+      setAnswersUploading(true)
+      setAnswersError(null)
+
+      if (!answerText.trim()) throw new Error("No text entered")
+
+      const filePath = `${params.sessionId}/answers/${Date.now()}-notes.txt`
+      const blob = new Blob([answerText], { type: "text/plain" })
+
+      const { error: uploadError } = await supabase.storage
+        .from("reports") // store notes in reports bucket
+        .upload(filePath, blob)
+
+      if (uploadError) throw uploadError
+
+      const publicUrl = supabase.storage.from("reports").getPublicUrl(filePath).data.publicUrl
+
+      await supabase.from("answers").insert([
+        {
+          session_id: params.sessionId,
+          file_name: "consultation-notes.txt",
+          file_url: publicUrl,
+        },
+      ])
+
+      setAnswerText("")
+      setUploadedAnswers([...uploadedAnswers, { file_name: "consultation-notes.txt", file_url: publicUrl }])
+    } catch (err: any) {
+      setAnswersError(err.message)
+    } finally {
+      setAnswersUploading(false)
     }
   }
 
@@ -127,37 +220,59 @@ export default function ConsultationPage() {
 
         {activeStep === "Answers" && (
           <div>
-            <h2 className="text-lg font-semibold mb-4">Answers</h2>
-            <p className="text-gray-500">
-              Answer input and storage will appear here.
-            </p>
+            <h2 className="text-lg font-semibold mb-4">Consultation Answers</h2>
+
+            <div className="space-y-4">
+              <input type="file" onChange={handleAnswerFileUpload} disabled={answersUploading} />
+
+              <textarea
+                className="w-full border p-2 rounded"
+                rows={5}
+                placeholder="Paste consultation answers or meeting notes here..."
+                value={answerText}
+                onChange={(e) => setAnswerText(e.target.value)}
+              />
+
+              <button
+                onClick={handleAnswerTextSubmit}
+                disabled={answersUploading}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              >
+                {answersUploading ? "Saving..." : "Save Notes"}
+              </button>
+
+              {answersError && <p className="text-red-500">{answersError}</p>}
+
+              <h3 className="font-semibold mt-4">Uploaded Answers</h3>
+              <ul className="list-disc pl-6 space-y-1">
+                {uploadedAnswers.map((f, i) => (
+                  <li key={i}>
+                    <a href={f.file_url} target="_blank" rel="noreferrer">{f.file_name}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
 
         {activeStep === "Tests" && (
           <div>
             <h2 className="text-lg font-semibold mb-4">Tests</h2>
-            <p className="text-gray-500">
-              Test recommendations will be shown here.
-            </p>
+            <p className="text-gray-500">Test recommendations will be shown here.</p>
           </div>
         )}
 
         {activeStep === "Labs" && (
           <div>
             <h2 className="text-lg font-semibold mb-4">Labs</h2>
-            <p className="text-gray-500">
-              Lab integrations will be implemented here.
-            </p>
+            <p className="text-gray-500">Lab integrations will be implemented here.</p>
           </div>
         )}
 
         {activeStep === "Plan" && (
           <div>
             <h2 className="text-lg font-semibold mb-4">Plan</h2>
-            <p className="text-gray-500">
-              Nutrition plan generation will be shown here.
-            </p>
+            <p className="text-gray-500">Nutrition plan generation will be shown here.</p>
           </div>
         )}
       </div>
