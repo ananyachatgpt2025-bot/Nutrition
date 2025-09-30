@@ -9,9 +9,12 @@ export default function ConsultationPage() {
   const params = useParams<{ sessionId: string }>()
   const [activeStep, setActiveStep] = useState<string>("Session")
   const [childData, setChildData] = useState<any>(null)
+
+  // Questions
   const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([])
   const [loadingQuestions, setLoadingQuestions] = useState(false)
 
+  // Answers
   const [answerText, setAnswerText] = useState("")
   const [answersUploading, setAnswersUploading] = useState(false)
   const [answersError, setAnswersError] = useState<string | null>(null)
@@ -26,35 +29,25 @@ export default function ConsultationPage() {
         .eq("child_id", params.sessionId)
         .single()
 
-      if (!error) {
-        setChildData(data)
-      }
+      if (!error) setChildData(data)
     }
     fetchChild()
   }, [params.sessionId])
 
-  // Fetch previously uploaded answers
+  // Fetch uploaded answers on load
   useEffect(() => {
     async function fetchAnswers() {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("answers")
         .select("*")
         .eq("session_id", params.sessionId)
 
-      if (data) setUploadedAnswers(data)
+      if (!error && data) setUploadedAnswers(data)
     }
     fetchAnswers()
   }, [params.sessionId])
 
-  const steps = [
-    "Session",
-    "Reports",
-    "Questions",
-    "Answers",
-    "Tests",
-    "Labs",
-    "Plan",
-  ]
+  const steps = ["Session", "Reports", "Questions", "Answers", "Tests", "Labs", "Plan"]
 
   async function handleGenerateQuestions() {
     try {
@@ -62,6 +55,7 @@ export default function ConsultationPage() {
       const res = await fetch(`/api/generate-questions?sessionId=${params.sessionId}`)
       if (!res.ok) throw new Error("Failed to generate questions")
       const data = await res.json()
+      // No artificial 5–7 cap anymore
       setGeneratedQuestions(data.questions || [])
     } catch (err) {
       console.error(err)
@@ -70,6 +64,7 @@ export default function ConsultationPage() {
     }
   }
 
+  // File upload for answers
   async function handleAnswerFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
     try {
       setAnswersUploading(true)
@@ -82,16 +77,14 @@ export default function ConsultationPage() {
       const file = event.target.files[0]
       const filePath = `${params.sessionId}/answers/${Date.now()}-${file.name}`
 
-      // Upload file to Supabase Storage
       const { error: uploadError } = await supabase.storage
-        .from("reports") // still using reports bucket for storage
+        .from("answers")
         .upload(filePath, file)
 
       if (uploadError) throw uploadError
 
-      const publicUrl = supabase.storage.from("reports").getPublicUrl(filePath).data.publicUrl
+      const publicUrl = supabase.storage.from("answers").getPublicUrl(filePath).data.publicUrl
 
-      // Insert record into answers table
       const { error: insertError } = await supabase.from("answers").insert([
         {
           session_id: params.sessionId,
@@ -110,6 +103,7 @@ export default function ConsultationPage() {
     }
   }
 
+  // Text notes upload for answers
   async function handleAnswerTextSubmit() {
     try {
       setAnswersUploading(true)
@@ -121,12 +115,12 @@ export default function ConsultationPage() {
       const blob = new Blob([answerText], { type: "text/plain" })
 
       const { error: uploadError } = await supabase.storage
-        .from("reports") // store notes in reports bucket
+        .from("answers")
         .upload(filePath, blob)
 
       if (uploadError) throw uploadError
 
-      const publicUrl = supabase.storage.from("reports").getPublicUrl(filePath).data.publicUrl
+      const publicUrl = supabase.storage.from("answers").getPublicUrl(filePath).data.publicUrl
 
       await supabase.from("answers").insert([
         {
@@ -169,16 +163,9 @@ export default function ConsultationPage() {
             <h2 className="text-lg font-semibold mb-4">Session Details</h2>
             {childData ? (
               <ul className="space-y-2">
-                <li>
-                  <strong>Name:</strong> {childData.child_name}
-                </li>
-                <li>
-                  <strong>DOB:</strong>{" "}
-                  {new Date(childData.dob).toLocaleDateString()}
-                </li>
-                <li>
-                  <strong>Consultant:</strong> {childData.consultant}
-                </li>
+                <li><strong>Name:</strong> {childData.child_name}</li>
+                <li><strong>DOB:</strong> {new Date(childData.dob).toLocaleDateString()}</li>
+                <li><strong>Consultant:</strong> {childData.consultant}</li>
               </ul>
             ) : (
               <p className="text-gray-500">Loading session info...</p>
@@ -221,7 +208,6 @@ export default function ConsultationPage() {
         {activeStep === "Answers" && (
           <div>
             <h2 className="text-lg font-semibold mb-4">Consultation Answers</h2>
-
             <div className="space-y-4">
               <input type="file" onChange={handleAnswerFileUpload} disabled={answersUploading} />
 
