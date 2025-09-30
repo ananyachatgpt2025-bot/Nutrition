@@ -50,7 +50,8 @@ Name: ${child?.child_name || "Unknown"}
 DOB: ${child?.dob || "Unknown"}
 Consultant: ${child?.consultant || "Unknown"}
 
-Generate 5–7 consultation questions tailored for this child.
+const prompt = `Generate as many detailed consultation questions as are clinically necessary for ${childName}, 
+based on their age, dietary needs, and context. Do not limit the number of questions.`
     `
 
     const completion = await openai.chat.completions.create({
