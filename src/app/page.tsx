@@ -1,245 +1,295 @@
-'use client'
+"use client"
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { Brain, Users, FileText, TestTube, Utensils, Shield, ArrowRight } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { supabase } from '@/lib/supabase'
-import { simpleHash } from '@/lib/utils'
+import { useState, useEffect } from "react"
+import { useParams } from "next/navigation"
+import { supabase } from "@/lib/supabase"
+import FileUpload from "@/components/file-upload"
 
-interface Session {
-  child_id: string
-  child_name: string
-  created_at: string
-}
+export default function ConsultationPage() {
+  const params = useParams<{ sessionId: string }>()
+  const [activeStep, setActiveStep] = useState<string>("Session")
+  const [childData, setChildData] = useState<any>(null)
 
-export default function HomePage() {
-  const router = useRouter()
-  const [childName, setChildName] = useState('')
-  const [childDob, setChildDob] = useState('')
-  const [consultant, setConsultant] = useState('')
-  const [existingSessions, setExistingSessions] = useState<Session[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  // Questions
+  const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([])
+  const [loadingQuestions, setLoadingQuestions] = useState(false)
 
+  // Answers
+  const [answerText, setAnswerText] = useState("")
+  const [answersUploading, setAnswersUploading] = useState(false)
+  const [answersError, setAnswersError] = useState<string | null>(null)
+  const [uploadedAnswers, setUploadedAnswers] = useState<any[]>([])
+
+  // Tests
+  const [testRecs, setTestRecs] = useState<string>("")
+  const [loadingTests, setLoadingTests] = useState(false)
+
+  // Fetch child/session data
   useEffect(() => {
-    loadExistingSessions()
-  }, [])
-
-  const loadExistingSessions = async () => {
-    try {
+    async function fetchChild() {
       const { data, error } = await supabase
-        .from('children')
-        .select('child_id, child_name, created_at')
-        .order('created_at', { ascending: false })
-        .limit(5)
-
-      if (error) throw error
-      setExistingSessions(data || [])
-    } catch (error) {
-      console.error('Error loading sessions:', error)
+        .from("children")
+        .select("*")
+        .eq("child_id", params.sessionId)
+        .single()
+      if (!error) setChildData(data)
     }
-  }
+    fetchChild()
+  }, [params.sessionId])
 
-  const createNewSession = async () => {
-    if (!childName.trim()) return
+  // Fetch uploaded answers
+  useEffect(() => {
+    async function fetchAnswers() {
+      const { data, error } = await supabase
+        .from("answers")
+        .select("*")
+        .eq("session_id", params.sessionId)
+        .order("uploaded_at", { ascending: false })
+      if (!error && data) setUploadedAnswers(data)
+    }
+    fetchAnswers()
+  }, [params.sessionId])
 
-    setIsLoading(true)
+  const steps = ["Session", "Reports", "Questions", "Answers", "Tests", "Labs", "Plan"]
+
+  async function handleGenerateQuestions() {
     try {
-      const sessionId = simpleHash(`${childName}|${childDob}|${consultant}|${new Date().toISOString()}`)
-      
-      const { error } = await supabase
-        .from('children')
-        .upsert({
-          child_id: sessionId,
-          child_name: childName.trim(),
-          dob: childDob || new Date().toISOString().split('T')[0],
-          consultant: consultant.trim() || 'Unknown',
-          created_at: new Date().toISOString()
-        })
-
-      if (error) throw error
-
-      router.push(`/consultation/${sessionId}`)
-    } catch (error) {
-      console.error('Error creating session:', error)
-      alert('Failed to create session. Please try again.')
+      setLoadingQuestions(true)
+      const res = await fetch(`/api/generate-questions?sessionId=${params.sessionId}`)
+      if (!res.ok) throw new Error("Failed to generate questions")
+      const data = await res.json()
+      setGeneratedQuestions(data.questions || [])
+    } catch (err) {
+      console.error(err)
     } finally {
-      setIsLoading(false)
+      setLoadingQuestions(false)
     }
   }
 
-  const loadExistingSession = (sessionId: string) => {
-    router.push(`/consultation/${sessionId}`)
+  // File upload for answers
+  async function handleAnswerFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    try {
+      setAnswersUploading(true)
+      setAnswersError(null)
+
+      if (!event.target.files || event.target.files.length === 0) {
+        throw new Error("No file selected")
+      }
+
+      const file = event.target.files[0]
+      const filePath = `${params.sessionId}/answers/${Date.now()}-${file.name}`
+
+      const { error: uploadError } = await supabase.storage
+        .from("answers")
+        .upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      const publicUrl = supabase.storage.from("answers").getPublicUrl(filePath).data.publicUrl
+
+      const { error: insertError } = await supabase.from("answers").insert([
+        {
+          session_id: params.sessionId,
+          file_name: file.name,
+          file_url: publicUrl,
+        },
+      ])
+
+      if (insertError) throw insertError
+
+      setUploadedAnswers((prev) => [...prev, { file_name: file.name, file_url: publicUrl }])
+    } catch (err: any) {
+      setAnswersError(err.message)
+    } finally {
+      setAnswersUploading(false)
+    }
+  }
+
+  // Text notes upload for answers
+  async function handleAnswerTextSubmit() {
+    try {
+      setAnswersUploading(true)
+      setAnswersError(null)
+
+      if (!answerText.trim()) throw new Error("No text entered")
+
+      const filePath = `${params.sessionId}/answers/${Date.now()}-notes.txt`
+      const blob = new Blob([answerText], { type: "text/plain" })
+
+      const { error: uploadError } = await supabase.storage
+        .from("answers")
+        .upload(filePath, blob)
+
+      if (uploadError) throw uploadError
+
+      const publicUrl = supabase.storage.from("answers").getPublicUrl(filePath).data.publicUrl
+
+      await supabase.from("answers").insert([
+        {
+          session_id: params.sessionId,
+          file_name: "consultation-notes.txt",
+          file_url: publicUrl,
+          notes: answerText,
+        },
+      ])
+
+      setAnswerText("")
+      setUploadedAnswers((prev) => [...prev, { file_name: "consultation-notes.txt", file_url: publicUrl }])
+    } catch (err: any) {
+      setAnswersError(err.message)
+    } finally {
+      setAnswersUploading(false)
+    }
+  }
+
+  // Fetch test recommendations
+  async function handleGenerateTests() {
+    try {
+      setLoadingTests(true)
+      const res = await fetch(`/api/recommend-tests?sessionId=${params.sessionId}`)
+      if (!res.ok) throw new Error("Failed to generate tests")
+      const data = await res.json()
+      setTestRecs(data.recommendations || "")
+    } catch (err) {
+      console.error(err)
+      setTestRecs("Error fetching recommendations.")
+    } finally {
+      setLoadingTests(false)
+    }
   }
 
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-[#0E7C86] rounded-lg">
-              <Brain className="h-8 w-8 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Neuro-Nutrition Consultant</h1>
-              <p className="text-sm text-slate-600">Professional paediatric nutrition consultation platform</p>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="max-w-4xl mx-auto p-6 space-y-8">
+      {/* Step navigation */}
+      <div className="flex gap-2 flex-wrap">
+        {steps.map((step) => (
+          <button
+            key={step}
+            className={`px-4 py-2 rounded ${
+              activeStep === step ? "bg-blue-600 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => setActiveStep(step)}
+          >
+            {step}
+          </button>
+        ))}
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid lg:grid-cols-2 gap-12 items-start">
-          {/* Left Column - Features */}
-          <div className="space-y-8">
-            <div>
-              <h2 className="text-3xl font-bold text-slate-900 mb-4">
-                Evidence-based nutrition care for children with developmental needs
-              </h2>
-              <p className="text-lg text-slate-600 mb-6">
-                Streamlined workflow for paediatric nutrition consultations with neuro-affirmative approach, 
-                designed for British healthcare standards and Indian cultural context.
-              </p>
-            </div>
-
-            <div className="grid gap-4">
-              {[
-                {
-                  icon: FileText,
-                  title: "Psychometric Analysis",
-                  description: "Upload and analyse assessment reports with AI-powered insights"
-                },
-                {
-                  icon: Users,
-                  title: "Parent Consultation",
-                  description: "Generate targeted questions and collect structured responses"
-                },
-                {
-                  icon: TestTube,
-                  title: "Evidence-based Testing",
-                  description: "Recommend blood tests from approved clinical guidelines"
-                },
-                {
-                  icon: Utensils,
-                  title: "Nutrition Planning",
-                  description: "Create culturally appropriate diet and supplement plans"
-                },
-                {
-                  icon: Shield,
-                  title: "Clinical Safety",
-                  description: "Built-in safeguards and clinician review requirements"
-                }
-              ].map((feature, index) => (
-                <div key={index} className="flex items-start space-x-4 p-4 rounded-lg hover:bg-white/50 transition-colors">
-                  <div className="p-2 bg-[#0E7C86]/10 rounded-lg">
-                    <feature.icon className="h-5 w-5 text-[#0E7C86]" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-900">{feature.title}</h3>
-                    <p className="text-sm text-slate-600">{feature.description}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-sm text-amber-800">
-                <strong>Clinical Note:</strong> This platform provides decision support only. 
-                All recommendations require clinician review before implementation.
-              </p>
-            </div>
-          </div>
-
-          {/* Right Column - Session Management */}
-          <div className="space-y-6">
-            {/* New Session */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-xl">Start New Consultation</CardTitle>
-                <CardDescription>
-                  Create a new session for a child consultation
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Child's Name *
-                  </label>
-                  <Input
-                    placeholder="e.g., Aadhya Sharma"
-                    value={childName}
-                    onChange={(e) => setChildName(e.target.value)}
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Date of Birth
-                  </label>
-                  <Input
-                    type="date"
-                    value={childDob}
-                    onChange={(e) => setChildDob(e.target.value)}
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Consultant Name
-                  </label>
-                  <Input
-                    placeholder="Your name"
-                    value={consultant}
-                    onChange={(e) => setConsultant(e.target.value)}
-                  />
-                </div>
-                
-                <Button 
-                  onClick={createNewSession}
-                  disabled={!childName.trim() || isLoading}
-                  className="w-full"
-                >
-                  {isLoading ? 'Creating Session...' : 'Start Consultation'}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Existing Sessions */}
-            {existingSessions.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl">Recent Sessions</CardTitle>
-                  <CardDescription>
-                    Continue with an existing consultation
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {existingSessions.map((session) => (
-                      <div
-                        key={session.child_id}
-                        className="flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => loadExistingSession(session.child_id)}
-                      >
-                        <div>
-                          <p className="font-medium text-slate-900">{session.child_name}</p>
-                          <p className="text-sm text-slate-500">
-                            {new Date(session.created_at).toLocaleDateString('en-GB')}
-                          </p>
-                        </div>
-                        <ArrowRight className="h-4 w-4 text-slate-400" />
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+      {/* Step content */}
+      <div className="p-6 border rounded bg-white shadow">
+        {activeStep === "Session" && (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Session Details</h2>
+            {childData ? (
+              <ul className="space-y-2">
+                <li><strong>Name:</strong> {childData.child_name}</li>
+                <li><strong>DOB:</strong> {new Date(childData.dob).toLocaleDateString()}</li>
+                <li><strong>Consultant:</strong> {childData.consultant}</li>
+              </ul>
+            ) : (
+              <p className="text-gray-500">Loading session info...</p>
             )}
           </div>
-        </div>
+        )}
+
+        {activeStep === "Reports" && (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Upload Reports</h2>
+            <FileUpload sessionId={params.sessionId} />
+          </div>
+        )}
+
+        {activeStep === "Questions" && (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Generated Questions</h2>
+            <button
+              onClick={handleGenerateQuestions}
+              disabled={loadingQuestions}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loadingQuestions ? "Generating..." : "Generate Questions"}
+            </button>
+
+            <div className="mt-4 space-y-2">
+              {generatedQuestions?.length > 0 ? (
+                <ul className="list-disc pl-6 space-y-2">
+                  {generatedQuestions.map((q: string, idx: number) => (
+                    <li key={idx}>{q}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-gray-500">No questions yet. Click the button above.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeStep === "Answers" && (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Consultation Answers</h2>
+            <div className="space-y-4">
+              <input type="file" onChange={handleAnswerFileUpload} disabled={answersUploading} />
+
+              <textarea
+                className="w-full border p-2 rounded"
+                rows={5}
+                placeholder="Paste consultation answers or meeting notes here..."
+                value={answerText}
+                onChange={(e) => setAnswerText(e.target.value)}
+              />
+
+              <button
+                onClick={handleAnswerTextSubmit}
+                disabled={answersUploading}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              >
+                {answersUploading ? "Saving..." : "Save Notes"}
+              </button>
+
+              {answersError && <p className="text-red-500">{answersError}</p>}
+
+              <h3 className="font-semibold mt-4">Uploaded Answers</h3>
+              <ul className="list-disc pl-6 space-y-1">
+                {uploadedAnswers.map((f, i) => (
+                  <li key={i}>
+                    <a href={f.file_url} target="_blank" rel="noreferrer">{f.file_name}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {activeStep === "Tests" && (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Recommended Tests</h2>
+            <button
+              onClick={handleGenerateTests}
+              disabled={loadingTests}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loadingTests ? "Loading..." : "Generate Recommendations"}
+            </button>
+
+            <div className="mt-4 whitespace-pre-wrap text-gray-700">
+              {testRecs || "No recommendations yet. Click the button above."}
+            </div>
+          </div>
+        )}
+
+        {activeStep === "Labs" && (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Labs</h2>
+            <p className="text-gray-500">Lab integrations will be implemented here.</p>
+          </div>
+        )}
+
+        {activeStep === "Plan" && (
+          <div>
+            <h2 className="text-lg font-semibold mb-4">Plan</h2>
+            <p className="text-gray-500">Nutrition plan generation will be shown here.</p>
+          </div>
+        )}
       </div>
     </div>
   )
